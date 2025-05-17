@@ -1,0 +1,15 @@
+# Ne pas versionner les infos sensibles
+.env
+
+# Fichiers temporaires de Python
+__pycache__/
+*.pyc
+
+# Fichiers logs ou bases de données temporaires
+*.log
+*.db
+
+# Fichiers système ou d'IDE
+.DS_Store           # macOS
+.vscode/            # Visual Studio Code
+.idea/              # PyCharm
