@@ -1,85 +1,79 @@
-import os
-from dotenv import load_dotenv  # ← Ajoute cette ligne
+import asyncio
 import discord
 from discord.ext import commands
-import requests
-from bs4 import BeautifulSoup
+from playwright.async_api import async_playwright
+import os
 
-# Charge les variables depuis le fichier .env
-load_dotenv()  # ← Charge les variables d’environnement
+TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 
-# Intents
 intents = discord.Intents.default()
 intents.message_content = True
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-bot = commands.Bot(command_prefix='!', intents=intents)
+# Classement (ordre = classement)
+USERS = [
+    ("2470546", "Bawel"),
+    ("2787126", "Double Eyes"),
+    ("2162464", "H@rpoCr@ker89"),
+    ("1471764", "Varo"),
+    ("2757814", "Christoff11"),
+    ("3844342", "Baston"),
+    ("3333798", "Frank"),
+    ("4732031", "Yasmine"),
+]
 
-users = {
-    "bvstn": "Baston",
-    "Catamaran23": "Bawel",
-}
+# Emojis personnalisés pour les 3 premiers
+TOP_EMOJIS = [
+    "🥇🔥",  # 1er : or + flamme
+    "🥈✨",  # 2ème : argent + étoile brillante
+    "🥉🌟"   # 3ème : bronze + étoile brillante
+]
+DEFAULT_EMOJI = "⭐"
 
-def get_thm_info(username):
-    url = f"https://tryhackme.com/p/{username}"
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
+async def screenshot_badge(user_id: str, output_file="badge.png"):
+    async with async_playwright() as p:
+        browser = await p.chromium.launch()
+        page = await browser.new_page()
 
-        rank_tag = soup.find("span", {"class": "rank"})
-        rank = rank_tag.text.strip() if rank_tag else "No rank"
+        iframe_url = f"https://tryhackme.com/api/v2/badges/public-profile?userPublicId={user_id}"
+        html = f"""
+        <html style="margin:0;padding:0;overflow:hidden;background:transparent;">
+        <body style="margin:0;padding:0;overflow:hidden;background:transparent;">
+        <iframe id="badge" src="{iframe_url}" width="327" height="84" style="border:none;"></iframe>
+        </body>
+        </html>
+        """
+        await page.set_content(html)
+        await page.wait_for_timeout(3000)
 
-        badge_tag = soup.find("div", {"class": "badges-count"})
-        badges = int(badge_tag.text.strip()) if badge_tag else 0
-
-        streak_tag = soup.find("span", {"class": "streak"})
-        streak = int(streak_tag.text.strip()) if streak_tag else 0
-
-        rooms_tag = soup.find("span", {"class": "rooms-completed"})
-        rooms_completed = int(rooms_tag.text.strip()) if rooms_tag else 0
-
-        score_tag = soup.find("span", {"class": "points"})
-        score = int(score_tag.text.replace(',', '')) if score_tag else 0
-
-        return {
-            'score': score,
-            'badge': badges,
-            'rooms_completed': rooms_completed,
-            'rank': rank,
-            'streak': streak
-        }
-    except requests.exceptions.RequestException as e:
-        print(f"Request error for {username}: {e}")
-        return None
-    except Exception as e:
-        print(f"Error for {username}: {e}")
-        return None
-
-@bot.command()
-async def leaderboard(ctx):
-    leaderboard = []
-    for username, display_name in users.items():
-        user_info = get_thm_info(username)
-        leaderboard.append((display_name, user_info))
-
-    leaderboard.sort(key=lambda x: x[1]['score'] if x[1] else 0, reverse=True)
-
-    msg = "**🏆 TryHackMe Leaderboard 🏆**\n"
-    for rank, (name, info) in enumerate(leaderboard, start=1):
-        if info:
-            msg += f"{rank}. **{name}** - {info['score']} points\n"
-            msg += f"   Rank: {info['rank']}\n"
-            msg += f"   Badge: {info['badge']} badges\n"
-            msg += f"   Rooms completed: {info['rooms_completed']}\n"
-            msg += f"   Streak: {info['streak']} day(s)\n"
+        frame_element = await page.query_selector("iframe#badge")
+        if frame_element:
+            await frame_element.screenshot(path=output_file)
         else:
-            msg += f"{rank}. **{name}** - Error retrieving data\n"
+            print(f"❌ Could not find iframe for user {user_id}")
 
-    await ctx.send(msg)
+        await browser.close()
 
-# Démarrage sécurisé du bot
-token = os.getenv("DISCORD_BOT_TOKEN")
-if not token:
-    raise ValueError("Token Discord introuvable. Assure-toi que le fichier .env contient DISCORD_BOT_TOKEN.")
+@bot.command(name="livebadge")
+async def live_badge(ctx):
+    await ctx.send("⏳ Récupération des badges pour le classement...")
 
-bot.run(token)
+    try:
+        await ctx.send("\n🏆 **LEADERBOARD** 🏆\n")
+
+        for index, (user_id, username) in enumerate(USERS):
+            emoji = TOP_EMOJIS[index] if index < len(TOP_EMOJIS) else DEFAULT_EMOJI
+            file_path = f"badge_{user_id}.png"
+
+            await screenshot_badge(user_id=user_id, output_file=file_path)
+
+            await ctx.send(f"{emoji} **{username}**", file=discord.File(file_path))
+            await ctx.send("➖" * 6)
+
+            os.remove(file_path)
+
+    except Exception as e:
+        print(f"❌ Erreur : {e}")
+        await ctx.send("⚠️ Une erreur est survenue lors de la récupération des badges.")
+
+bot.run(TOKEN)
